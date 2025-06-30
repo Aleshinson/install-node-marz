@@ -70,12 +70,25 @@ touch /var/lib/marzban/log/{access.log,error.log} || print_error "Не удал�
 # 5. Настройка docker-compose.yml
 print_status "Настройка docker-compose.yml..."
 cd /opt/"$NODE_NAME" || print_error "Не удалось перейти в директорию /opt/$NODE_NAME"
-if ! grep -q "/var/lib/marzban/log" docker-compose.yml; then
-    sed -i '/volumes:/a \ \ \ \ - /var/lib/marzban/log:/var/lib/marzban/log' docker-compose.yml || print_error "Не удалось добавить том в docker-compose.yml"
-fi
-if ! grep -q "/opt/$NODE_NAME/certs:/var/lib/marzban/certs" docker-compose.yml; then
-    sed -i '/volumes:/a \ \ \ \ - /opt/'"$NODE_NAME"'/certs:/var/lib/marzban/certs' docker-compose.yml || print_error "Не удалось добавить том для сертификата в docker-compose.yml"
-fi
+mkdir -p /var/lib/"$NODE_NAME"
+echo "$CERTIFICATE" > /var/lib/"$NODE_NAME"/cert.pem || print_error "Не удалось сохранить сертификат"
+cat > docker-compose.yml <<EOL
+services:
+  marzban-node:
+    container_name: $NODE_NAME
+    image: gozargah/marzban-node:latest
+    restart: always
+    network_mode: host
+    environment:
+      SSL_CLIENT_CERT_FILE: "/var/lib/marzban-node/cert.pem"
+      SERVICE_PORT: "62050"
+      XRAY_API_PORT: "62051"
+      SERVICE_PROTOCOL: "rest"
+    volumes:
+      - /var/lib/$NODE_NAME:/var/lib/marzban
+      - /var/lib/$NODE_NAME:/var/lib/marzban-node
+      - /var/lib/marzban/log:/var/lib/marzban/log
+EOL
 docker compose up -d || print_error "Не удалось запустить docker-compose"
 
 # 6. Получение SSL сертификата для домена
