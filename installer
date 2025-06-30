@@ -63,18 +63,17 @@ apt update && apt install -y nginx || print_error "Не удалось уста�
 
 # 2. Установка ноды Marzban
 print_status "Установка ноды Marzban..."
-# Запускаем marzban-node.sh в фоновом режиме с перенаправлением ввода, включая сертификат и подтверждение перезаписи
-bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install --name "$NODE_NAME" <<< $"${CERTIFICATE}\ny\nY\n62050\n62051\n" >/dev/null 2>&1 &
+# Запускаем marzban-node.sh в фоновом режиме, сохраняем вывод в лог
+bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install --name "$NODE_NAME" <<< $"${CERTIFICATE}\nY\n62050\n62051\n" > /tmp/marzban-node.log 2>&1 &
 # Сохраняем PID процесса
 MARZBAN_PID=$!
-# Ждем 15 секунд, чтобы установка и запуск контейнера завершились
-sleep 15
+# Ждем 30 секунд, чтобы установка и запуск контейнера завершились
+sleep 30
 # Прерываем процесс, чтобы закрыть вывод логов
 kill $MARZBAN_PID 2>/dev/null || true
 # Проверяем, что docker-compose.yml создался
 if [ ! -f "/opt/$NODE_NAME/docker-compose.yml" ]; then
-  print_error "Не удалось установить ноду Marzban"
-  exit 1
+  print_error "Не удалось установить ноду Marzban. Проверьте лог: /tmp/marzban-node.log"
 fi
 
 # 3. Остановка контейнера после установки
