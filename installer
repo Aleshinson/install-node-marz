@@ -60,7 +60,13 @@ apt update && apt install -y nginx || print_error "Не удалось уста�
 
 # 2. Установка ноды Marzban
 print_status "Установка ноды Marzban..."
-bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install --name "$NODE_NAME" || print_error "Не удалось установить ноду Marzban"
+curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh -o /tmp/marzban-node.sh
+chmod +x /tmp/marzban-node.sh
+/tmp/marzban-node.sh @ install --name "$NODE_NAME" <<< $'Y\n62050\n62051\n' >> /tmp/marzban_install.log 2>&1 || print_error "Не удалось установить ноду Marzban"
+
+# 3. Остановка контейнера после установки
+print_status "Остановка контейнера..."
+docker stop "$NODE_NAME" || print_error "Не удалось остановить контейнер $NODE_NAME"
 
 # 4. Создание папки и файлов логов
 print_status "Создание директории и файлов логов..."
@@ -68,7 +74,7 @@ mkdir -p /var/lib/marzban/log
 touch /var/lib/marzban/log/{access.log,error.log} || print_error "Не удалось создать файлы логов"
 
 # 5. Настройка docker-compose.yml
-print_status "Настройка docker-compose.yml..."
+print_status "Замена docker-compose.yml..."
 cd /opt/"$NODE_NAME" || print_error "Не удалось перейти в директорию /opt/$NODE_NAME"
 cat > docker-compose.yml <<EOL
 services:
@@ -87,6 +93,9 @@ services:
       - /var/lib/$NODE_NAME:/var/lib/marzban-node
       - /var/lib/marzban/log:/var/lib/marzban/log
 EOL
+
+# 6. Перезапуск контейнера
+print_status "Перезапуск контейнера..."
 docker compose up -d || print_error "Не удалось запустить docker-compose"
 
 # 6. Получение SSL сертификата для домена
