@@ -21,6 +21,11 @@ print_status() {
     echo -e "${GREEN}[+] $1${NC}"
 }
 
+# Функция для вывода отладочной информации
+print_debug() {
+    echo -e "${BLUE}[DEBUG] $1${NC}"
+}
+
 # Функция для вывода ошибки
 print_error() {
     echo -e "${RED}[-] Ошибка: $1${NC}"
@@ -30,6 +35,12 @@ print_error() {
 # Проверка, запущен ли скрипт от root
 if [[ $EUID -ne 0 ]]; then
     print_error "Скрипт должен быть запущен с правами root (sudo)"
+fi
+
+# Проверка наличия expect
+if ! command -v expect &> /dev/null; then
+    print_status "Установка expect..."
+    apt update && apt install -y expect || print_error "Не удалось установить expect"
 fi
 
 # Запрос данных у пользователя
@@ -46,7 +57,7 @@ echo -e "${BLUE}Вставьте сертификат и завершите вв
 CERTIFICATE=$(cat)
 
 # Проверка ввода
-if [[ -z "$NODE_NAME" || -z "$DOMAIN" || -z "$CF_EMAIL" || -z "$CF_API_KEY" || -z "$MARZBAN_IP" ]]; then
+if [[ -z "$NODE_NAME" || -z "$DOMAIN" || -z "$CF_EMAIL" || -z "$CF_API_KEY" || -z "$MARZBAN_IP" || -z "$CERTIFICATE" ]]; then
     print_error "Все поля, включая сертификат, должны быть заполнены!"
 fi
 
@@ -63,30 +74,49 @@ apt update && apt install -y nginx || print_error "Не удалось уста�
 
 # 2. Установка ноды Marzban
 print_status "Установка ноды Marzban..."
-# Запускаем marzban-node.sh в фоновом режиме, сохраняем вывод в лог
-bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install --name "$NODE_NAME" <<< $"${CERTIFICATE}\nY\n62050\n62051\n" > /tmp/marzban-node.log 2>&1 &
-# Сохраняем PID процесса
-MARZBAN_PID=$!
-# Ждем 120 секунд, чтобы установка и запуск контейнера завершились
-sleep 120
-# Прерываем процесс, чтобы закрыть вывод логов
-kill $MARZBAN_PID 2>/dev/null || true
-# Проверяем, что docker-compose.yml создался
+print_debug "Загрузка установщика Marzban..."
+curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh > marzban-node.sh
+chmod +x marzban-node.sh
+
+print_debug "Установка Marzban Node с автоматическим вводом сертификата..."
+expect << EOF
+spawn ./marzban-node.sh @ install --name ${NODE_NAME}
+expect "Please paste the content of the Client Certificate"
+send -- "-----BEGIN CERTIFICATE-----\n"
+send -- "${CERTIFICATE}\n"
+send -- "-----END CERTIFICATE-----\n\n"
+expect "Do you want to use REST protocol?"
+send -- "y\n"
+expect "Enter the SERVICE_PORT"
+send -- "62050\n"
+expect "Enter the XRAY_API_PORT"
+send -- "62051\n"
+expect eof
+EOF
+
+# Удаление временного файла
+rm -f marzban-node.sh
+
+# Проверка, что docker-compose.yml создался
 if [ ! -f "/opt/$NODE_NAME/docker-compose.yml" ]; then
-  print_error "Не удалось установить ноду Marzban. Проверьте лог: /tmp/marzban-node.log"
+    print_error "Не удалось установить ноду Marzban. Проверьте ошибки в консоли."
 fi
 
 # 3. Остановка контейнера после установки
 print_status "Остановка контейнера..."
-docker stop "$NODE_NAME" || echo "[-] Контейнер не был запущен или уже остановлен."
+docker stop "$NODE_NAME" 2>/dev/null || echo "[-] Контейнер не был запущен или уже остановлен."
 
 # 4. Создание директорий и лог-файлов 
 print_status "Создание логов..."
+print_debug "Создание директории для логов..."
 mkdir -p /var/lib/marzban/log
 touch /var/lib/marzban/log/{access.log,error.log}
+chmod 755 /var/lib/marzban/log
+chmod 644 /var/lib/marzban/log/{access.log,error.log}
 
 # 5. Перезапись docker-compose.yml
 print_status "Настройка docker-compose.yml..."
+print_debug "Настройка монтирования логов в docker-compose..."
 cd /opt/"$NODE_NAME" || print_error "Не удалось найти директорию /opt/$NODE_NAME"
 
 cat > docker-compose.yml <<EOL
@@ -113,23 +143,25 @@ EOL
 
 # 6. Перезапуск контейнера
 print_status "Запуск контейнера..."
+print_debug "Перезапуск контейнера..."
+docker compose down
 docker compose up -d >/dev/null 2>&1 || print_error "Не удалось запустить docker-compose"
 
-# 6. Получение SSL сертификата для домена
+# 7. Получение SSL сертификата для домена
 print_status "Установка certbot и получение SSL сертификата..."
 apt install -y certbot python3-certbot-dns-cloudflare || print_error "Не удалось установить certbot"
 echo -e "dns_cloudflare_email = $CF_EMAIL\ndns_cloudflare_api_key = $CF_API_KEY" > /etc/letsencrypt/dns-cloudflare.ini
 chmod 600 /etc/letsencrypt/dns-cloudflare.ini
 certbot certonly --dns-cloudflare --dns-cloudflare-credentials /etc/letsencrypt/dns-cloudflare.ini -d "$DOMAIN" --non-interactive --agree-tos -m "$CF_EMAIL" || print_error "Не удалось получить сертификат"
 
-# 7. Настройка nginx.conf
+# 8. Настройка nginx.conf
 print_status "Настройка nginx.conf..."
 cat > /etc/nginx/nginx.conf <<EOL
 user                              www-data;
 pid                               /run/nginx.pid;
 worker_processes                  auto;
 worker_rlimit_nofile              65535;
-error_log                         //var/lib/marzban/log/error.log;
+error_log                         /var/lib/marzban/log/error.log;
 include                           /etc/nginx/modules-enabled/*.conf;
 
 events {
@@ -175,7 +207,7 @@ stream {
 }
 EOL
 
-# 8. Настройка local.conf
+# 9. Настройка local.conf
 print_status "Настройка local.conf..."
 mkdir -p /var/www/"$DOMAIN"
 echo "<html><body><h1>Welcome to $DOMAIN</h1></body></html>" > /var/www/"$DOMAIN"/index.html
@@ -214,11 +246,11 @@ server {
 }
 EOL
 
-# 9. Генерация DH параметров
+# 10. Генерация DH параметров
 print_status "Генерация DH параметров..."
 openssl dhparam -out /etc/nginx/dhparam.pem 2048 || print_error "Не удалось сгенерировать DH параметры"
 
-# 10. Настройка stream.conf
+# 11. Настройка stream.conf
 print_status "Настройка stream.conf..."
 mkdir -p /etc/nginx/stream-enabled
 cat > /etc/nginx/stream-enabled/stream.conf <<EOL
@@ -244,7 +276,7 @@ server {
 }
 EOL
 
-# 11. Настройка UFW
+# 12. Настройка UFW
 print_status "Настройка UFW..."
 ufw enable
 ufw allow 22
@@ -254,16 +286,16 @@ ufw allow from "$MARZBAN_IP" to any port 62050
 ufw allow from "$MARZBAN_IP" to any port 62051
 ufw status
 
-# 12. Проверка и запуск Nginx
+# 13. Проверка и запуск Nginx
 print_status "Проверка и запуск Nginx..."
 nginx -t || print_error "Ошибка в конфигурации Nginx"
 systemctl start nginx || print_error "Не удалось запустить Nginx"
 
-# 13. Установка WARP
+# 14. Установка WARP
 print_status "Установка WARP..."
 cd && bash <(curl -fsSL https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh) w || print_error "Не удалось установить WARP"
 
-# 14. Установка ядра Xanmod
+# 15. Установка ядра Xanmod
 print_status "Установка ядра Xanmod..."
 wget -qO - https://gitlab.com/afrd.gpg | gpg --dearmor -o /usr/share/keyrings/xanmod-archive-keyring.gpg
 echo 'deb [signed-by=/usr/share/keyrings/xanmod-archive-keyring.gpg] http://deb.xanmod.org releases main' | tee /etc/apt/sources.list.d/xanmod-release.list
@@ -274,10 +306,10 @@ modinfo tcp_bbr
 echo -e "net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\nnet.ipv6.conf.all.disable_ipv6=1\nnet.ipv6.conf.default.disable_ipv6=1" >> /etc/sysctl.conf
 sysctl -p
 
-# 15. Установка блокировки торрентов
+# 16. Установка блокировки торрентов
 print_status "Установка блокировки торрентов..."
 bash <(curl -fsSL git.new/install) || print_error "Не удалось установить блокировщик торрентов"
-for config in /opt announced-blocker/config.yaml /opt/tblocker/config.yaml; do
+for config in /opt/announced-blocker/config.yaml /opt/tblocker/config.yaml; do
     if [[ -f "$config" ]]; then
         sed -i 's|LogFile:.*|LogFile: "/var/lib/marzban/log/access.log"|' "$config"
     fi
