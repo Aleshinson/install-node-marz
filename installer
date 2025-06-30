@@ -41,6 +41,9 @@ read -p "Введите домен (например, sub.domain.com): " DOMAIN
 read -p "Введите email для Cloudflare: " CF_EMAIL
 read -p "Введите API ключ Cloudflare: " CF_API_KEY
 read -p "Введите IP адрес главного сервера Marzban: " MARZBAN_IP
+echo -e "${YELLOW}Введите SSL сертификат для подключения ноды к главному серверу (в формате -----BEGIN CERTIFICATE----- ... -----END CERTIFICATE-----):${NC}"
+echo -e "${BLUE}Вставьте сертификат и завершите ввод комбинацией Ctrl+D:${NC}"
+CERTIFICATE=$(cat)
 
 # Проверка ввода
 if [[ -z "$NODE_NAME" || -z "$DOMAIN" || -z "$CF_EMAIL" || -z "$CF_API_KEY" || -z "$MARZBAN_IP" ]]; then
@@ -58,28 +61,33 @@ echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx
 echo -e "Package: *\nPin: origin nginx.org\nPin: release o=nginx\nPin-Priority: 900\n" | tee /etc/apt/preferences.d/99nginx
 apt update && apt install -y nginx || print_error "Не удалось установить Nginx"
 
-# Установка ноды Marzban
-echo "[+] Установка ноды Marzban..."
-sudo bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install --name "$NODE_NAME" <<< $'Y\n62050\n62051\n' || {
-  echo "[-] Ошибка: Не удалось установить ноду Marzban"
-  exit 1
-}
+# 2. Установка ноды Marzban
+print_status "Установка ноды Marzban..."
+# Запускаем marzban-node.sh в фоновом режиме с перенаправлением ввода, включая сертификат
+bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install --name "$NODE_NAME" <<< $"${CERTIFICATE}\nY\n62050\n62051\n" >/dev/null 2>&1 &
+# Сохраняем PID процесса
+MARZBAN_PID=$!
+# Ждем 15 секунд, чтобы установка и запуск контейнера завершились
+sleep 15
+# Прерываем процесс, чтобы закрыть вывод логов
+kill $MARZBAN_PID 2>/dev/null || true
+# Проверяем, что docker-compose.yml создался
+if [ ! -f "/opt/$NODE_NAME/docker-compose.yml" ]; then
+  print_error "Не удалось установить ноду Marzban"
+fi
 
-# Остановка контейнера после установки
-echo "[+] Остановка контейнера..."
+# 3. Остановка контейнера после установки
+print_status "Остановка контейнера..."
 docker stop "$NODE_NAME" || echo "[-] Контейнер не был запущен или уже остановлен."
 
-# Создание директорий и лог-файлов 
-echo "[+] Создание логов..."
+# 4. Создание директорий и лог-файлов 
+print_status "Создание логов..."
 mkdir -p /var/lib/marzban/log
 touch /var/lib/marzban/log/{access.log,error.log}
 
-# Перезапись docker-compose.yml
-echo "[+] Настройка docker-compose.yml..."
-cd /opt/"$NODE_NAME" || {
-  echo "[-] Не удалось найти директорию /opt/$NODE_NAME"
-  exit 1
-}
+# 5. Перезапись docker-compose.yml
+print_status "Настройка docker-compose.yml..."
+cd /opt/"$NODE_NAME" || print_error "Не удалось найти директорию /opt/$NODE_NAME"
 
 cat > docker-compose.yml <<EOL
 services:
@@ -103,12 +111,9 @@ services:
       - /var/lib/marzban/log:/var/lib/marzban/log
 EOL
 
-# Перезапуск контейнера
-echo "[+] Запуск контейнера..."
-docker compose up -d || {
-  echo "[-] Не удалось запустить docker-compose"
-  exit 1
-}
+# 6. Перезапуск контейнера
+print_status "Запуск контейнера..."
+docker compose up -d >/dev/null 2>&1 || print_error "Не удалось запустить docker-compose"
 
 # 6. Получение SSL сертификата для домена
 print_status "Установка certbot и получение SSL сертификата..."
