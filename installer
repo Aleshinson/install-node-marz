@@ -131,10 +131,6 @@ services:
       SERVICE_PORT: "62050"
       XRAY_API_PORT: "62051"
       SERVICE_PROTOCOL: "rest"
-      NODE_DOMAIN: "$DOMAIN"
-      CF_EMAIL: "$CF_EMAIL"
-      CF_API_KEY: "$CF_API_KEY"
-      MARZBAN_PANEL_IP: "$MARZBAN_IP"
     volumes:
       - /var/lib/$NODE_NAME:/var/lib/marzban
       - /var/lib/$NODE_NAME:/var/lib/marzban-node
