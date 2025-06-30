@@ -67,8 +67,8 @@ print_status "Установка ноды Marzban..."
 bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install --name "$NODE_NAME" <<< $"${CERTIFICATE}\nY\n62050\n62051\n" > /tmp/marzban-node.log 2>&1 &
 # Сохраняем PID процесса
 MARZBAN_PID=$!
-# Ждем 60 секунд, чтобы установка и запуск контейнера завершились
-sleep 60
+# Ждем 120 секунд, чтобы установка и запуск контейнера завершились
+sleep 120
 # Прерываем процесс, чтобы закрыть вывод логов
 kill $MARZBAN_PID 2>/dev/null || true
 # Проверяем, что docker-compose.yml создался
