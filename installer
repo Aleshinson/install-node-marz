@@ -70,8 +70,6 @@ touch /var/lib/marzban/log/{access.log,error.log} || print_error "Не удал�
 # 5. Настройка docker-compose.yml
 print_status "Настройка docker-compose.yml..."
 cd /opt/"$NODE_NAME" || print_error "Не удалось перейти в директорию /opt/$NODE_NAME"
-mkdir -p /var/lib/"$NODE_NAME"
-echo "$CERTIFICATE" > /var/lib/"$NODE_NAME"/cert.pem || print_error "Не удалось сохранить сертификат"
 cat > docker-compose.yml <<EOL
 services:
   marzban-node:
