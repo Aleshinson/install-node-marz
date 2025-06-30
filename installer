@@ -58,24 +58,29 @@ echo "deb [signed-by=/usr/share/keyrings/nginx-archive-keyring.gpg] http://nginx
 echo -e "Package: *\nPin: origin nginx.org\nPin: release o=nginx\nPin-Priority: 900\n" | tee /etc/apt/preferences.d/99nginx
 apt update && apt install -y nginx || print_error "Не удалось установить Nginx"
 
-# 2. Установка ноды Marzban
-print_status "Установка ноды Marzban..."
-curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh -o /tmp/marzban-node.sh
-chmod +x /tmp/marzban-node.sh
-/tmp/marzban-node.sh @ install --name "$NODE_NAME" <<< $'Y\n62050\n62051\n' >> /tmp/marzban_install.log 2>&1 || print_error "Не удалось установить ноду Marzban"
+# Установка ноды Marzban
+echo "[+] Установка ноды Marzban..."
+sudo bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install --name "$NODE_NAME" <<< $'Y\n62050\n62051\n' || {
+  echo "[-] Ошибка: Не удалось установить ноду Marzban"
+  exit 1
+}
 
-# 3. Остановка контейнера после установки
-print_status "Остановка контейнера..."
-docker stop "$NODE_NAME" || print_error "Не удалось остановить контейнер $NODE_NAME"
+# Остановка контейнера после установки
+echo "[+] Остановка контейнера..."
+docker stop "$NODE_NAME" || echo "[-] Контейнер не был запущен или уже остановлен."
 
-# 4. Создание папки и файлов логов
-print_status "Создание директории и файлов логов..."
+# Создание директорий и лог-файлов 
+echo "[+] Создание логов..."
 mkdir -p /var/lib/marzban/log
-touch /var/lib/marzban/log/{access.log,error.log} || print_error "Не удалось создать файлы логов"
+touch /var/lib/marzban/log/{access.log,error.log}
 
-# 5. Настройка docker-compose.yml
-print_status "Замена docker-compose.yml..."
-cd /opt/"$NODE_NAME" || print_error "Не удалось перейти в директорию /opt/$NODE_NAME"
+# Перезапись docker-compose.yml
+echo "[+] Настройка docker-compose.yml..."
+cd /opt/"$NODE_NAME" || {
+  echo "[-] Не удалось найти директорию /opt/$NODE_NAME"
+  exit 1
+}
+
 cat > docker-compose.yml <<EOL
 services:
   marzban-node:
@@ -88,15 +93,22 @@ services:
       SERVICE_PORT: "62050"
       XRAY_API_PORT: "62051"
       SERVICE_PROTOCOL: "rest"
+      NODE_DOMAIN: "$DOMAIN"
+      CF_EMAIL: "$CF_EMAIL"
+      CF_API_KEY: "$CF_API_KEY"
+      MARZBAN_PANEL_IP: "$MARZBAN_IP"
     volumes:
       - /var/lib/$NODE_NAME:/var/lib/marzban
       - /var/lib/$NODE_NAME:/var/lib/marzban-node
       - /var/lib/marzban/log:/var/lib/marzban/log
 EOL
 
-# 6. Перезапуск контейнера
-print_status "Перезапуск контейнера..."
-docker compose up -d || print_error "Не удалось запустить docker-compose"
+# Перезапуск контейнера
+echo "[+] Запуск контейнера..."
+docker compose up -d || {
+  echo "[-] Не удалось запустить docker-compose"
+  exit 1
+}
 
 # 6. Получение SSL сертификата для домена
 print_status "Установка certbot и получение SSL сертификата..."
