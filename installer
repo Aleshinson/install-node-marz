@@ -40,14 +40,10 @@ read -p "Введите имя ноды (например, location-node-1): " N
 read -p "Введите домен (например, sub.domain.com): " DOMAIN
 read -p "Введите email для Cloudflare: " CF_EMAIL
 read -p "Введите API ключ Cloudflare: " CF_API_KEY
-read -p "Введите IP адрес главного сервера Marzban (например, 188.253.20.124): " MARZBAN_IP
-
-echo -e "${YELLOW}Введите SSL сертификат для подключения ноды к главному серверу (в формате -----BEGIN CERTIFICATE----- ... -----END CERTIFICATE-----):${NC}"
-echo -e "${BLUE}Вставьте сертификат и завершите ввод комбинацией Ctrl+D:${NC}"
-CERTIFICATE=$(cat)
+read -p "Введите IP адрес главного сервера Marzban: " MARZBAN_IP
 
 # Проверка ввода
-if [[ -z "$NODE_NAME" || -z "$DOMAIN" || -z "$CF_EMAIL" || -z "$CF_API_KEY" || -z "$MARZBAN_IP" || -z "$CERTIFICATE" ]]; then
+if [[ -z "$NODE_NAME" || -z "$DOMAIN" || -z "$CF_EMAIL" || -z "$CF_API_KEY" || -z "$MARZBAN_IP" ]]; then
     print_error "Все поля, включая сертификат, должны быть заполнены!"
 fi
 
@@ -65,11 +61,6 @@ apt update && apt install -y nginx || print_error "Не удалось уста�
 # 2. Установка ноды Marzban
 print_status "Установка ноды Marzban..."
 bash -c "$(curl -sL https://github.com/Gozargah/Marzban-scripts/raw/master/marzban-node.sh)" @ install --name "$NODE_NAME" || print_error "Не удалось установить ноду Marzban"
-
-# 3. Сохранение SSL сертификата для Marzban
-print_status "Сохранение SSL сертификата для ноды..."
-mkdir -p /opt/"$NODE_NAME"/certs
-echo "$CERTIFICATE" > /opt/"$NODE_NAME"/certs/marzban-node-cert.pem || print_error "Не удалось сохранить сертификат"
 
 # 4. Создание папки и файлов логов
 print_status "Создание директории и файлов логов..."
