@@ -51,7 +51,7 @@ if [[ -z "$NODE_NAME" || -z "$DOMAIN" || -z "$CF_EMAIL" || -z "$CF_API_KEY" || -
 fi
 
 # Проверка формата сертификата
-if ! echo "$CERTIFICATE" | grep -q "-----BEGIN CERTIFICATE-----" || ! echo "$CERTIFICATE" | grep -q "-----END CERTIFICATE-----"; then
+if ! echo "$CERTIFICATE" | grep -q "^-----BEGIN CERTIFICATE-----" || ! echo "$CERTIFICATE" | grep -q "-----END CERTIFICATE-----$"; then
     print_error "Сертификат должен быть в формате PEM (содержать -----BEGIN CERTIFICATE----- и -----END CERTIFICATE-----)"
 fi
 
